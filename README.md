@@ -4,6 +4,62 @@ EduBridge AI is a student-focused hackathon MVP built with React, TypeScript, Ta
 
 ---
 
+## 🏗️ Architecture: Decoupled Frontend & Backend
+
+The repository is organized into distinct frontend and backend layers coordinated via a root workspace:
+
+```text
+hack2skill/
+├── frontend/                      # Client UI application (React 18 + Vite + Tailwind)
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts             # Vite dev server + dev middleware for /api/generate
+│   ├── tailwind.config.js
+│   ├── postcss.config.js
+│   ├── tsconfig.json
+│   └── src/
+│       ├── main.tsx
+│       ├── App.tsx
+│       ├── components/            # UI components (Navbar, Dashboard, Planner, Gaps, Resources, Coach, Modal)
+│       ├── services/
+│       │   └── apiClient.ts       # Centralized client calling /api/generate
+│       ├── data/
+│       │   └── sampleData.ts      # Demo student seed data for judges
+│       ├── types/
+│       │   └── index.ts           # UI TypeScript contracts
+│       ├── utils/
+│       │   └── storage.ts         # LocalStorage persistence & reset logic
+│       └── index.css
+│
+├── backend/                       # Server-side business logic & AI integration
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       ├── routes/
+│       │   └── generate.ts        # POST /api/generate route dispatcher
+│       ├── controllers/
+│       │   └── generateController.ts # Input validation, size limiter & execution
+│       ├── services/
+│       │   └── geminiService.ts   # Official @google/genai SDK + offline engine
+│       ├── types/
+│       │   └── index.ts           # Server-side request/response and domain types
+│       └── data/
+│           └── fallbackData.ts    # Deterministic fallback responses
+│
+├── api/                           # Vercel Serverless Function entrypoint
+│   └── generate.ts                # Serverless adapter invoking backend/src/routes/generate
+│
+├── package.json                   # Root orchestrator & npm workspaces
+├── package-lock.json              # Unified lockfile
+├── vercel.json                    # Vercel deployment routing (output: frontend/dist)
+├── tsconfig.json                  # Root TypeScript configuration
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+---
+
 ## 🚀 Key Features
 
 1. **Usable Dashboard Immediately**
@@ -46,9 +102,9 @@ EduBridge AI is a student-focused hackathon MVP built with React, TypeScript, Ta
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, Lucide React icons, Canvas Confetti
-- **AI SDK**: `@google/genai` (Google Gen AI official JavaScript SDK)
+- **Backend**: TypeScript, Node.js, `@google/genai` (Google Gen AI official JavaScript SDK)
 - **Model**: `gemini-3.8-flash`
-- **Backend / Serverless**: Vercel Serverless Function at `/api/generate` with built-in Vite development middleware
+- **Serverless**: Vercel Serverless Function at `/api/generate` with built-in Vite development middleware
 - **Storage**: Browser LocalStorage for persistent profiles, task completions, and chat history
 
 ---
@@ -61,7 +117,7 @@ EduBridge AI is a student-focused hackathon MVP built with React, TypeScript, Ta
 
 ### 1. Clone & Install
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/syedtanisha/hack2skill.git
 cd hack2skill
 npm install
 ```
@@ -81,22 +137,23 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ```bash
 npm run dev
 ```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+Open [http://localhost:5173](http://localhost:5173) in your browser. The Vite dev server will automatically proxy `/api/generate` requests directly to `backend/src/routes/generate.ts`.
 
 ### 4. Build for Production
 ```bash
 npm run build
 ```
+This runs type-checking and bundling across both `@edubridge/backend` and `@edubridge/frontend`, outputting production static assets to `frontend/dist`.
 
 ---
 
 ## 🌐 Deploy to Vercel
 
-1. Push this repository to GitHub / GitLab.
+1. Push this repository to GitHub.
 2. Import the repository in [Vercel](https://vercel.com).
 3. In Vercel Project Settings > **Environment Variables**, add:
    - `GEMINI_API_KEY`: Your Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-4. Deploy! The `vercel.json` and `api/generate.ts` endpoints will automatically configure the serverless AI backend and static frontend bundle.
+4. Deploy! The `vercel.json` (`outputDirectory: "frontend/dist"`) and `api/generate.ts` endpoints will automatically configure the serverless AI backend and static frontend bundle.
 
 ---
 

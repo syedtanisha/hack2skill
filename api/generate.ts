@@ -1,4 +1,4 @@
-import { handleGeneration } from '../src/server/geminiService';
+import { handleGenerateRoute } from '../backend/src/routes/generate';
 
 export default async function handler(req: any, res: any) {
   // Set CORS headers for security and flexibility
@@ -22,7 +22,7 @@ export default async function handler(req: any, res: any) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const result = await handleGeneration(body, apiKey);
+    const result = await handleGenerateRoute(body, apiKey);
     return res.status(result.status).json(result.data);
   } catch (error: any) {
     console.error('Vercel API execution error:', error);

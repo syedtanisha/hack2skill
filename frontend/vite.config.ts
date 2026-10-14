@@ -1,9 +1,12 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+  // Load .env from root project directory
+  const rootDir = path.resolve(__dirname, '..');
+  const env = loadEnv(mode, rootDir, '');
 
   return {
     plugins: [
@@ -34,9 +37,10 @@ export default defineConfig(({ mode }) => {
                 const body = JSON.parse(bodyStr || '{}');
                 const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
-                // Dynamically load the TypeScript handler via Vite SSR
-                const { handleGeneration } = await server.ssrLoadModule('./src/server/geminiService.ts');
-                const result = await handleGeneration(body, apiKey);
+                // Dynamically load the backend route handler via Vite SSR
+                const backendRoutePath = path.resolve(__dirname, '../backend/src/routes/generate.ts');
+                const backendModule = await server.ssrLoadModule(backendRoutePath);
+                const result = await backendModule.handleGenerateRoute(body, apiKey);
 
                 res.statusCode = result.status || 200;
                 res.setHeader('Content-Type', 'application/json');
@@ -47,7 +51,7 @@ export default defineConfig(({ mode }) => {
                 res.setHeader('Content-Type', 'application/json');
                 res.end(JSON.stringify({
                   error: err.message || 'Internal server error',
-                  isFallback: true
+                  isFallback: true,
                 }));
               }
             });

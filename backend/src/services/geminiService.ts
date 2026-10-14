@@ -1,58 +1,23 @@
 import { GoogleGenAI } from '@google/genai';
-import { StudentProfile, StudyPlan, SkillGap } from '../types';
-import { SAMPLE_SKILL_GAPS } from '../data/sampleData';
+import { GenerationRequest, GenerationResponse, SkillGap, StudyPlan, SubjectRating } from '../types';
+import { SAMPLE_SKILL_GAPS } from '../data/fallbackData';
 
-export interface GenerationRequest {
-  type: 'study-plan' | 'skill-gap' | 'coach-chat' | 'health-check';
-  profile?: StudentProfile;
-  message?: string;
-  chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
-}
-
-export interface GenerationResponse {
-  status: number;
-  data: {
-    success: boolean;
-    data?: any;
-    error?: string;
-    isFallback: boolean;
-    model: string;
-  };
-}
-
-export async function handleGeneration(
+/**
+ * Execute Generation through Gemini 3.8 Flash SDK or Deterministic Engine
+ */
+export async function executeGeneration(
   body: GenerationRequest,
   apiKey?: string
 ): Promise<GenerationResponse> {
-  // Input validation
-  if (!body || !body.type) {
-    return {
-      status: 400,
-      data: {
-        success: false,
-        error: 'Invalid request: "type" is required.',
-        isFallback: true,
-        model: 'none',
-      },
-    };
+  // If no API key is supplied, immediately use offline intelligence engine
+  if (!apiKey) {
+    return generateDeterministicFallback(body);
   }
 
-  // Health check endpoint
-  if (body.type === 'health-check') {
-    if (!apiKey) {
-      return {
-        status: 200,
-        data: {
-          success: true,
-          data: { connected: false, message: 'GEMINI_API_KEY not configured on server. Running in deterministic demo mode.' },
-          isFallback: true,
-          model: 'offline-engine',
-        },
-      };
-    }
+  try {
+    const ai = new GoogleGenAI({ apiKey });
 
-    try {
-      const ai = new GoogleGenAI({ apiKey });
+    if (body.type === 'health-check') {
       const interaction = await ai.interactions.create({
         model: 'gemini-3.8-flash',
         input: 'Ping. Reply with "pong".',
@@ -66,30 +31,11 @@ export async function handleGeneration(
           model: 'gemini-3.8-flash',
         },
       };
-    } catch (err: any) {
-      return {
-        status: 200,
-        data: {
-          success: false,
-          data: { connected: false, error: err.message },
-          isFallback: true,
-          model: 'offline-engine',
-        },
-      };
     }
-  }
-
-  // If no API key, use rich deterministic fallbacks
-  if (!apiKey) {
-    return generateDeterministicFallback(body);
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey });
 
     if (body.type === 'coach-chat') {
       const studentContext = body.profile
-        ? `Student Name: ${body.profile.name}. Goal: ${body.profile.goal}. Weak subjects: ${body.profile.subjects.filter(s => s.proficiency <= 2).map(s => s.name).join(', ') || 'None'}.`
+        ? `Student Name: ${body.profile.name}. Goal: ${body.profile.goal}. Weak subjects: ${body.profile.subjects.filter((s: SubjectRating) => s.proficiency <= 2).map((s: SubjectRating) => s.name).join(', ') || 'None'}.`
         : 'Student preparing for exams.';
 
       const prompt = `You are EduBridge AI, an empathetic, encouraging, and clear academic coach and tutor.
@@ -126,7 +72,7 @@ Provide a well-structured, student-friendly answer. Use bullet points or bold te
 Student Goal: ${profile.goal}
 Daily Available Study Time: ${profile.dailyMinutes} minutes
 Subjects & Ratings:
-${profile.subjects.map(s => `- ${s.name}: ${s.proficiency}/5`).join('\n')}
+${profile.subjects.map((s: SubjectRating) => `- ${s.name}: ${s.proficiency}/5`).join('\n')}
 
 Output JSON format strictly matching this structure (an array of objects, no markdown backticks, raw JSON):
 [
@@ -173,7 +119,7 @@ Output JSON format strictly matching this structure (an array of objects, no mar
 Goal: ${profile.goal}
 Available daily study time: ${profile.dailyMinutes} minutes
 Subjects and self-rated proficiency (1-5 scale):
-${profile.subjects.map(s => `- ${s.name}: ${s.proficiency}/5`).join('\n')}
+${profile.subjects.map((s: SubjectRating) => `- ${s.name}: ${s.proficiency}/5`).join('\n')}
 
 CRITICAL INSTRUCTIONS:
 - Allocate roughly 60-70% of study time to weaker subjects (proficiency 1 or 2).
@@ -232,17 +178,35 @@ CRITICAL INSTRUCTIONS:
 
     return generateDeterministicFallback(body);
   } catch (error: any) {
-    console.warn('Gemini API call failed, safely falling back to intelligent offline engine:', error.message);
+    console.warn('Gemini API call failed, falling back to offline diagnostic engine:', error.message);
     return generateDeterministicFallback(body, error.message);
   }
 }
 
 /**
  * Deterministic fallback generator.
- * Produces structured, student-relevant output tailored to student inputs,
- * clearly flagged as fallback content so users/judges always get a functional demo.
  */
-function generateDeterministicFallback(body: GenerationRequest, originalError?: string): GenerationResponse {
+export function generateDeterministicFallback(
+  body: GenerationRequest,
+  originalError?: string
+): GenerationResponse {
+  if (body.type === 'health-check') {
+    return {
+      status: 200,
+      data: {
+        success: true,
+        data: {
+          connected: false,
+          message: originalError
+            ? `Gemini API error: ${originalError}. Running in deterministic mode.`
+            : 'GEMINI_API_KEY not configured on server. Running in deterministic demo mode.',
+        },
+        isFallback: true,
+        model: 'offline-engine',
+      },
+    };
+  }
+
   if (body.type === 'coach-chat') {
     const q = (body.message || '').toLowerCase();
     let reply = `Here is a structured explanation to help with your study goal:
@@ -289,7 +253,7 @@ function generateDeterministicFallback(body: GenerationRequest, originalError?: 
 
   if (body.type === 'skill-gap') {
     const profile = body.profile;
-    const gaps: SkillGap[] = (profile?.subjects || []).map((sub, idx) => {
+    const gaps: SkillGap[] = (profile?.subjects || []).map((sub: SubjectRating, idx: number) => {
       let status: 'critical' | 'moderate' | 'strong' = 'moderate';
       let badge = 'Needs Reinforcement';
       let explanation = `Self-rated ${sub.proficiency}/5. Requires consistent practice to stabilize high-score potential.`;
@@ -347,7 +311,6 @@ function generateDeterministicFallback(body: GenerationRequest, originalError?: 
       { id: '3', name: 'Mathematics', proficiency: 3 }
     ];
 
-    // Sort so weaker subjects get more tasks
     const sortedSubs = [...subjects].sort((a, b) => a.proficiency - b.proficiency);
     const dayLabels = ['Day 1 (Mon)', 'Day 2 (Tue)', 'Day 3 (Wed)', 'Day 4 (Thu)', 'Day 5 (Fri)', 'Day 6 (Sat)', 'Day 7 (Sun)'];
 
