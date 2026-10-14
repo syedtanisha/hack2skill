@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm --prefix frontend run dev",
-    "build": "npm run build --workspace=@edubridge/backend && npm run build --workspace=@edubridge/frontend && node -e \"fs.cpSync('frontend/dist', 'dist', {recursive: true})\"",
+    "build": "npm run build --workspace=@edubridge/backend && npm run build --workspace=@edubridge/frontend && node -e \"const fs = require('fs'); fs.cpSync('frontend/dist', 'dist', {recursive: true})\"",
     "build:frontend": "npm run build --workspace=@edubridge/frontend",
     "build:backend": "npm run build --workspace=@edubridge/backend",
     "preview": "npm --prefix frontend run preview"
