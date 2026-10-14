@@ -7,7 +7,7 @@ import {
   SubjectRating,
   StudyMaterial,
 } from '../types';
-import { SAMPLE_SKILL_GAPS } from '../data/fallbackData';
+import { SAMPLE_SKILL_GAPS, SAMPLE_STUDY_PLAN } from '../data/fallbackData';
 import { extractDocumentText } from './documentExtractor';
 import { analyzeDocumentTopics, generateDeterministicTopicAnalysis } from './topicAnalyzer';
 import { generateTutorResponse, generateDeterministicTutorResponse, generateFallbackQuiz } from './tutorService';
