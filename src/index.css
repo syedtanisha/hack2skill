@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-cream-50 text-charcoal-800 font-sans antialiased min-h-screen;
+    background-color: #FAF9F6;
+  }
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Custom subtle badge styles */
+.badge-sage {
+  @apply bg-sage-50 text-sage-800 border border-sage-200/80;
+}
+
+.badge-coral {
+  @apply bg-coral-50 text-coral-800 border border-coral-200/80;
+}
+
+.card-warm {
+  @apply bg-white rounded-2xl border border-cream-200/90 shadow-card transition-all duration-200;
+}
