@@ -1,6 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
-import { GenerationRequest, GenerationResponse, SkillGap, StudyPlan, SubjectRating } from '../types';
+import {
+  GenerationRequest,
+  GenerationResponse,
+  SkillGap,
+  StudyPlan,
+  SubjectRating,
+  StudyMaterial,
+} from '../types';
 import { SAMPLE_SKILL_GAPS } from '../data/fallbackData';
+import { extractDocumentText } from './documentExtractor';
+import { analyzeDocumentTopics, generateDeterministicTopicAnalysis } from './topicAnalyzer';
+import { generateTutorResponse, generateDeterministicTutorResponse, generateFallbackQuiz } from './tutorService';
 
 /**
  * Execute Generation through Gemini 3.8 Flash SDK or Deterministic Engine
@@ -17,6 +27,7 @@ export async function executeGeneration(
   try {
     const ai = new GoogleGenAI({ apiKey });
 
+    // 1. Health Check
     if (body.type === 'health-check') {
       const interaction = await ai.interactions.create({
         model: 'gemini-3.8-flash',
@@ -33,9 +44,120 @@ export async function executeGeneration(
       };
     }
 
+    // 2. Material Scanner Extraction & Topic Analysis
+    if (body.type === 'material-extract') {
+      try {
+        const buffer = Buffer.from(body.fileBase64!, 'base64');
+        const extraction = await extractDocumentText(buffer, body.fileName!, body.fileType);
+        const analysis = await analyzeDocumentTopics(
+          extraction.text,
+          body.fileName!,
+          body.subject || 'General Studies',
+          apiKey
+        );
+
+        const material: StudyMaterial = {
+          id: `mat-${Date.now()}`,
+          fileName: body.fileName!,
+          fileSize: buffer.length,
+          fileType: (body.fileType || body.fileName!.split('.').pop() || 'txt').toLowerCase() as any,
+          subject: body.subject || 'General Studies',
+          uploadedAt: new Date().toISOString(),
+          extractedText: extraction.text,
+          wordCount: extraction.wordCount,
+          pageCount: extraction.pageCount,
+          title: analysis.title,
+          summary: analysis.summary,
+          topics: analysis.topics,
+        };
+
+        return {
+          status: 200,
+          data: {
+            success: true,
+            data: material,
+            isFallback: analysis.isFallback,
+            model: 'gemini-3.8-flash',
+          },
+        };
+      } catch (extractErr: any) {
+        return {
+          status: 400,
+          data: {
+            success: false,
+            error: extractErr.message || 'Failed to extract text from uploaded document.',
+            isFallback: true,
+            model: 'none',
+          },
+        };
+      }
+    }
+
+    // 3. AI Tutor Explanations & Modes
+    if (body.type === 'tutor-explain') {
+      const topic = body.topic!;
+      const materialText = body.materialText || topic.summary;
+      const docName = body.documentName || 'Course Notes';
+      const mode = body.tutorMode || 'simple';
+      const level = body.explanationLevel || 'intermediate';
+
+      const tutorResult = await generateTutorResponse(
+        topic,
+        materialText,
+        docName,
+        mode,
+        level,
+        body.userQuery,
+        apiKey
+      );
+
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: tutorResult,
+          isFallback: tutorResult.isFallback,
+          model: 'gemini-3.8-flash',
+        },
+      };
+    }
+
+    // 4. Topic Quiz Generation
+    if (body.type === 'generate-quiz') {
+      const topic = body.topic!;
+      const materialText = body.materialText || topic.summary;
+      const docName = body.documentName || 'Course Notes';
+
+      const quizResult = await generateTutorResponse(
+        topic,
+        materialText,
+        docName,
+        'mcq-quiz',
+        'intermediate',
+        undefined,
+        apiKey
+      );
+
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: quizResult.quizQuestions || generateFallbackQuiz(topic, docName),
+          isFallback: quizResult.isFallback,
+          model: 'gemini-3.8-flash',
+        },
+      };
+    }
+
+    // 5. Coach Chat
     if (body.type === 'coach-chat') {
       const studentContext = body.profile
-        ? `Student Name: ${body.profile.name}. Goal: ${body.profile.goal}. Weak subjects: ${body.profile.subjects.filter((s: SubjectRating) => s.proficiency <= 2).map((s: SubjectRating) => s.name).join(', ') || 'None'}.`
+        ? `Student Name: ${body.profile.name}. Goal: ${body.profile.goal}. Weak subjects: ${
+            body.profile.subjects
+              .filter((s: SubjectRating) => s.proficiency <= 2)
+              .map((s: SubjectRating) => s.name)
+              .join(', ') || 'None'
+          }.`
         : 'Student preparing for exams.';
 
       const prompt = `You are EduBridge AI, an empathetic, encouraging, and clear academic coach and tutor.
@@ -61,6 +183,7 @@ Provide a well-structured, student-friendly answer. Use bullet points or bold te
       };
     }
 
+    // 6. Skill Gap Analysis
     if (body.type === 'skill-gap') {
       const profile = body.profile;
       if (!profile || !profile.subjects || profile.subjects.length === 0) {
@@ -95,7 +218,11 @@ Output JSON format strictly matching this structure (an array of objects, no mar
       });
 
       const text = interaction.output_text?.trim() || '';
-      const cleanJson = text.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+      const cleanJson = text
+        .replace(/^```json/i, '')
+        .replace(/^```/i, '')
+        .replace(/```$/i, '')
+        .trim();
       const parsedGaps: SkillGap[] = JSON.parse(cleanJson);
 
       return {
@@ -109,6 +236,7 @@ Output JSON format strictly matching this structure (an array of objects, no mar
       };
     }
 
+    // 7. Study Plan Generation
     if (body.type === 'study-plan') {
       const profile = body.profile;
       if (!profile) {
@@ -149,7 +277,11 @@ CRITICAL INSTRUCTIONS:
       });
 
       const text = interaction.output_text?.trim() || '';
-      const cleanJson = text.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+      const cleanJson = text
+        .replace(/^```json/i, '')
+        .replace(/^```/i, '')
+        .replace(/```$/i, '')
+        .trim();
       const parsed = JSON.parse(cleanJson);
 
       const generatedPlan: StudyPlan = {
@@ -186,10 +318,10 @@ CRITICAL INSTRUCTIONS:
 /**
  * Deterministic fallback generator.
  */
-export function generateDeterministicFallback(
+export async function generateDeterministicFallback(
   body: GenerationRequest,
   originalError?: string
-): GenerationResponse {
+): Promise<GenerationResponse> {
   if (body.type === 'health-check') {
     return {
       status: 200,
@@ -207,6 +339,97 @@ export function generateDeterministicFallback(
     };
   }
 
+  // Material extraction in offline mode: parse document locally
+  if (body.type === 'material-extract') {
+    try {
+      const buffer = Buffer.from(body.fileBase64!, 'base64');
+      const extraction = await extractDocumentText(buffer, body.fileName!, body.fileType);
+      const analysis = generateDeterministicTopicAnalysis(
+        extraction.text,
+        body.fileName!,
+        body.subject || 'General Studies'
+      );
+
+      const material: StudyMaterial = {
+        id: `mat-${Date.now()}`,
+        fileName: body.fileName!,
+        fileSize: buffer.length,
+        fileType: (body.fileType || body.fileName!.split('.').pop() || 'txt').toLowerCase() as any,
+        subject: body.subject || 'General Studies',
+        uploadedAt: new Date().toISOString(),
+        extractedText: extraction.text,
+        wordCount: extraction.wordCount,
+        pageCount: extraction.pageCount,
+        title: analysis.title,
+        summary: analysis.summary,
+        topics: analysis.topics,
+      };
+
+      return {
+        status: 200,
+        data: {
+          success: true,
+          data: material,
+          isFallback: true,
+          model: 'offline-engine',
+        },
+      };
+    } catch (err: any) {
+      return {
+        status: 400,
+        data: {
+          success: false,
+          error: err.message || 'Failed to extract text from document in offline mode.',
+          isFallback: true,
+          model: 'offline-engine',
+        },
+      };
+    }
+  }
+
+  // Tutor explanation in offline mode
+  if (body.type === 'tutor-explain') {
+    const topic = body.topic!;
+    const docName = body.documentName || 'Course Notes';
+    const mode = body.tutorMode || 'simple';
+    const level = body.explanationLevel || 'intermediate';
+
+    const tutorResult = generateDeterministicTutorResponse(
+      topic,
+      docName,
+      mode,
+      level,
+      body.userQuery
+    );
+
+    return {
+      status: 200,
+      data: {
+        success: true,
+        data: tutorResult,
+        isFallback: true,
+        model: 'offline-engine',
+      },
+    };
+  }
+
+  // Quiz generation in offline mode
+  if (body.type === 'generate-quiz') {
+    const topic = body.topic!;
+    const docName = body.documentName || 'Course Notes';
+    const questions = generateFallbackQuiz(topic, docName);
+
+    return {
+      status: 200,
+      data: {
+        success: true,
+        data: questions,
+        isFallback: true,
+        model: 'offline-engine',
+      },
+    };
+  }
+
   if (body.type === 'coach-chat') {
     const q = (body.message || '').toLowerCase();
     let reply = `Here is a structured explanation to help with your study goal:
@@ -215,7 +438,9 @@ export function generateDeterministicFallback(
 2. **Active Recall & Practice**: Don't just re-read notes. Try solving 3 variations of typical exam questions without peeking at the solutions.
 3. **Time-Boxing**: Spend 25 minutes of unbroken focus followed by a 5-minute break (Pomodoro method).
 
-*Note: EduBridge AI is currently operating in Offline Intelligence Mode (${originalError ? 'API offline' : 'Demo Mode'}). Live Gemini 3.8 Flash inference activates automatically once GEMINI_API_KEY is configured.*`;
+*Note: EduBridge AI is currently operating in Offline Intelligence Mode (${
+      originalError ? 'API offline' : 'Demo Mode'
+    }). Live Gemini 3.8 Flash inference activates automatically once GEMINI_API_KEY is configured.*`;
 
     if (q.includes('physics') || q.includes('faraday') || q.includes('lens') || q.includes('circuit')) {
       reply = `### Physics Concept Coaching:
@@ -267,7 +492,7 @@ export function generateDeterministicFallback(
         explanation = `Self-rated ${sub.proficiency}/5 indicates conceptual vulnerabilities and slow problem-solving velocity.`;
         urgency = `Immediate priority: early intervention prevents lost marks in high-weightage sections.`;
         const mins = profile?.dailyMinutes || 120;
-        hours = Math.round((mins * 7 * 0.35) / 60 * 10) / 10;
+        hours = Math.round(((mins * 7 * 0.35) / 60) * 10) / 10;
         topics = [`${sub.name} Foundational Theorems`, `${sub.name} High-Yield Numericals`, `${sub.name} Error Analysis`];
       } else if (sub.proficiency >= 4) {
         status = 'strong';
@@ -302,80 +527,78 @@ export function generateDeterministicFallback(
     };
   }
 
-  if (body.type === 'study-plan') {
-    const profile = body.profile;
-    const dailyMins = profile?.dailyMinutes || 120;
-    const subjects = profile?.subjects && profile.subjects.length > 0 ? profile.subjects : [
-      { id: '1', name: 'Physics', proficiency: 2 },
-      { id: '2', name: 'Chemistry', proficiency: 2 },
-      { id: '3', name: 'Mathematics', proficiency: 3 }
-    ];
+  // Fallback 7-Day Study Plan
+  const profile = body.profile;
+  const mins = profile?.dailyMinutes || 120;
 
-    const sortedSubs = [...subjects].sort((a, b) => a.proficiency - b.proficiency);
-    const dayLabels = ['Day 1 (Mon)', 'Day 2 (Tue)', 'Day 3 (Wed)', 'Day 4 (Thu)', 'Day 5 (Fri)', 'Day 6 (Sat)', 'Day 7 (Sun)'];
-
-    const tasks: any[] = [];
-    dayLabels.forEach((dayLabel, dayIdx) => {
-      const dayNum = dayIdx + 1;
-      const primarySub = sortedSubs[dayIdx % sortedSubs.length];
-      const secondarySub = sortedSubs[(dayIdx + 1) % sortedSubs.length];
-
-      const t1Minutes = Math.round(dailyMins * 0.6);
-      const t2Minutes = Math.max(20, dailyMins - t1Minutes);
-
-      tasks.push({
-        id: `task-d${dayNum}-1`,
-        dayNumber: dayNum,
-        dayLabel,
-        subject: primarySub.name,
-        topic: `${primarySub.name} High-Yield Concept & Problem Drill`,
-        durationMinutes: t1Minutes,
-        priority: primarySub.proficiency <= 2 ? 'High' : 'Medium',
-        activity: `Review core formulas and solve 8-10 targeted practice problems on weak areas.`,
-        completed: dayNum === 1,
-        completedAt: dayNum === 1 ? new Date().toISOString() : undefined,
-      });
-
-      tasks.push({
-        id: `task-d${dayNum}-2`,
-        dayNumber: dayNum,
-        dayLabel,
-        subject: secondarySub.name,
-        topic: `${secondarySub.name} Active Recall & Revision`,
-        durationMinutes: t2Minutes,
-        priority: secondarySub.proficiency <= 2 ? 'High' : 'Low',
-        activity: `Summarize key definitions, flashcards, or past exam numericals.`,
-        completed: false,
-      });
-    });
-
-    const generatedPlan: StudyPlan = {
-      id: `plan-offline-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      goal: profile?.goal || 'Academic Exam Mastery',
-      summary: `Tailored 7-day adaptive schedule prioritizing ${sortedSubs[0].name} (${sortedSubs[0].proficiency}/5) with ${dailyMins} min daily study sessions.`,
-      generatedBy: 'offline-engine',
-      tasks,
-    };
-
+  if (!profile || !profile.subjects || profile.subjects.length === 0) {
     return {
       status: 200,
       data: {
         success: true,
-        data: generatedPlan,
+        data: SAMPLE_STUDY_PLAN,
         isFallback: true,
         model: 'offline-engine',
       },
     };
   }
 
+  const dayNames = [
+    { num: 1, label: 'Day 1 (Mon)' },
+    { num: 2, label: 'Day 2 (Tue)' },
+    { num: 3, label: 'Day 3 (Wed)' },
+    { num: 4, label: 'Day 4 (Thu)' },
+    { num: 5, label: 'Day 5 (Fri)' },
+    { num: 6, label: 'Day 6 (Sat)' },
+    { num: 7, label: 'Day 7 (Sun)' },
+  ];
+
+  const tasks: any[] = [];
+  const subjects = profile.subjects;
+
+  dayNames.forEach(day => {
+    const sub1 = subjects[(day.num - 1) % subjects.length];
+    const sub2 = subjects[day.num % subjects.length];
+
+    tasks.push({
+      id: `task-d${day.num}-1`,
+      dayNumber: day.num,
+      dayLabel: day.label,
+      subject: sub1.name,
+      topic: `${sub1.name} Targeted Focus & Problem Set`,
+      durationMinutes: Math.round(mins * 0.5),
+      priority: sub1.proficiency <= 2 ? 'High' : 'Medium',
+      activity: `Solve 8 past-exam practice questions covering ${sub1.name} core theorems.`,
+      completed: false,
+    });
+
+    tasks.push({
+      id: `task-d${day.num}-2`,
+      dayNumber: day.num,
+      dayLabel: day.label,
+      subject: sub2.name,
+      topic: `${sub2.name} Conceptual Review & Speed Drill`,
+      durationMinutes: Math.round(mins * 0.5),
+      priority: sub2.proficiency <= 2 ? 'High' : 'Medium',
+      activity: `Timed review of high-yield formulas and practice 5 conversion problems.`,
+      completed: false,
+    });
+  });
+
   return {
-    status: 400,
+    status: 200,
     data: {
-      success: false,
-      error: 'Unrecognized request type',
+      success: true,
+      data: {
+        id: `plan-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        goal: profile?.goal || 'Academic Milestones',
+        summary: `Adaptive 7-day schedule allocating ${mins} mins/day targeting high-weightage topics and closing foundational bottlenecks.`,
+        generatedBy: 'offline-engine',
+        tasks,
+      },
       isFallback: true,
-      model: 'none',
+      model: 'offline-engine',
     },
   };
 }

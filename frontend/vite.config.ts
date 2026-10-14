@@ -25,9 +25,9 @@ export default defineConfig(({ mode }) => {
             let bodyStr = '';
             req.on('data', chunk => {
               bodyStr += chunk;
-              if (bodyStr.length > 500000) {
+              if (bodyStr.length > 15 * 1024 * 1024) {
                 res.statusCode = 413;
-                res.end(JSON.stringify({ error: 'Payload too large' }));
+                res.end(JSON.stringify({ error: 'Payload too large (15MB max limit)' }));
                 req.destroy();
               }
             });

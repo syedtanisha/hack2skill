@@ -15,10 +15,15 @@
     "preview": "npm --prefix frontend run preview"
   },
   "dependencies": {
-    "@google/genai": "^2.29.1"
+    "@google/genai": "^2.29.1",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/node": "^22.13.9",
+    "@types/pdf-parse": "^1.1.5",
     "typescript": "^5.7.3"
   }
 }

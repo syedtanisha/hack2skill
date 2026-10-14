@@ -4,9 +4,9 @@ import {
   Sliders, 
   Activity, 
   Calendar, 
-  Layers, 
-  Compass, 
-  MessageSquare 
+  BookOpen, 
+  FileText, 
+  Target 
 } from 'lucide-react';
 import { ApiStatus, StudentProfile } from '../types';
 
@@ -17,6 +17,7 @@ interface NavbarProps {
   profile: StudentProfile;
   onOpenProfile: () => void;
   onResetDemo: () => void;
+  onResetEmpty?: () => void;
   isDemoStudent: boolean;
 }
 
@@ -27,15 +28,26 @@ export const Navbar: React.FC<NavbarProps> = ({
   profile,
   onOpenProfile,
   onResetDemo,
+  onResetEmpty,
   isDemoStudent,
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: Activity },
-    { id: 'planner', label: '7-Day Plan', icon: Calendar },
-    { id: 'gaps', label: 'Skill Gap Analysis', icon: Layers },
-    { id: 'resources', label: 'Learning Resources', icon: Compass },
-    { id: 'coach', label: 'AI Learning Coach', icon: MessageSquare },
+    { id: 'subjects', label: 'My Subjects', icon: BookOpen },
+    { id: 'materials', label: 'My Materials', icon: FileText },
+    { id: 'tutor', label: 'AI Tutor', icon: GraduationCap },
+    { id: 'tasks', label: 'My Tasks', icon: Calendar },
+    { id: 'progress', label: 'My Progress', icon: Target },
   ];
+
+  const isTabActive = (tabId: string) => {
+    if (currentTab === tabId) return true;
+    if (tabId === 'tasks' && currentTab === 'planner') return true;
+    if (tabId === 'subjects' && currentTab === 'gaps') return true;
+    if (tabId === 'tutor' && currentTab === 'coach') return true;
+    if (tabId === 'progress' && currentTab === 'resources') return true;
+    return false;
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-cream-200 shadow-subtle">
@@ -61,7 +73,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <nav className="hidden md:flex items-center gap-1 bg-cream-100/80 p-1 rounded-xl border border-cream-200">
             {tabs.map(tab => {
               const Icon = tab.icon;
-              const isActive = currentTab === tab.id;
+              const isActive = isTabActive(tab.id);
               return (
                 <button
                   key={tab.id}
@@ -107,28 +119,49 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Sample Student / Reset Action */}
-            <button
-              onClick={onResetDemo}
-              title="Reset or load sample student data for judges"
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                isDemoStudent
-                  ? 'bg-sage-100 text-sage-800 border-sage-300'
-                  : 'text-charcoal-600 bg-cream-100 hover:bg-cream-200 border-cream-200'
-              }`}
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-charcoal-500" />
-              <span>{isDemoStudent ? 'Sample Mode Active' : 'Load Sample'}</span>
-            </button>
+            {/* Sample Student / New Profile Actions */}
+            <div className="hidden sm:flex items-center gap-1.5 bg-cream-100 p-0.5 rounded-xl border border-cream-200">
+              <button
+                onClick={onResetDemo}
+                title="Load realistic sample student (Aarav Sharma) with PCM subjects, weak areas, and 5 tasks"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  isDemoStudent
+                    ? 'bg-sage-600 text-white shadow-xs'
+                    : 'text-charcoal-600 hover:text-charcoal-900'
+                }`}
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Sample Demo</span>
+              </button>
+              {onResetEmpty && (
+                <button
+                  onClick={onResetEmpty}
+                  title="Clear data and test new student onboarding experience from scratch"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    !profile.isCompleted
+                      ? 'bg-sage-600 text-white shadow-xs'
+                      : 'text-charcoal-600 hover:text-charcoal-900'
+                  }`}
+                >
+                  <span>New Student</span>
+                </button>
+              )}
+            </div>
 
             {/* Profile / Goal Configuration */}
             <button
               onClick={onOpenProfile}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sage-500 text-white hover:bg-sage-600 font-semibold text-xs transition-colors shadow-sm"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold text-xs transition-colors shadow-sm ${
+                profile.isCompleted
+                  ? 'bg-sage-500 hover:bg-sage-600 text-white'
+                  : 'bg-coral-500 hover:bg-coral-600 text-white animate-pulse'
+              }`}
             >
               <Sliders className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{profile.name}</span>
-              <span className="sm:hidden">Goals</span>
+              <span className="hidden sm:inline">
+                {profile.isCompleted ? profile.name : 'Setup Profile'}
+              </span>
+              <span className="sm:hidden">Profile</span>
             </button>
           </div>
         </div>
@@ -137,7 +170,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex md:hidden overflow-x-auto py-2 gap-1 border-t border-cream-200/80 -mx-4 px-4 scrollbar-none">
           {tabs.map(tab => {
             const Icon = tab.icon;
-            const isActive = currentTab === tab.id;
+            const isActive = isTabActive(tab.id);
             return (
               <button
                 key={tab.id}

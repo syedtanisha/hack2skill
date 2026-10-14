@@ -6,11 +6,54 @@ export interface SubjectRating {
 
 export interface StudentProfile {
   name: string;
+  course: string; // e.g. "B.Tech Computer Science" or "Class 12 CBSE"
+  branch: string; // e.g. "Artificial Intelligence & Data Science" or "PCM"
+  year: string; // e.g. "3rd Year" or "Class 12"
+  semester: string; // e.g. "5th Semester" or "Term 2"
   goal: string;
   targetDate: string;
   dailyMinutes: number;
   subjects: SubjectRating[];
+  isCompleted?: boolean;
   lastUpdated?: string;
+}
+
+export interface TodoTask {
+  id: string;
+  title: string;
+  description?: string;
+  subject: string;
+  deadline: string; // YYYY-MM-DD
+  priority: 'Urgent' | 'High' | 'Medium' | 'Low';
+  estimatedMinutes: number;
+  completed: boolean;
+  completedAt?: string;
+  topicId?: string; // Optional link to an extracted topic
+}
+
+export interface WeakAreaItem {
+  id: string;
+  subject: string;
+  topic: string;
+  source: 'assessment' | 'self-reported' | 'quiz-gap';
+  severity: 'critical' | 'moderate';
+  notes?: string;
+  dateAdded: string;
+  quizScore?: number;
+}
+
+export interface TodayPlannedSession {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  subject: string;
+  durationMinutes: number;
+  priority: 'Urgent' | 'High' | 'Medium' | 'Low';
+  reason: string;
+  isBreakdown?: boolean;
+  sessionNumber?: number;
+  totalSessions?: number;
+  completed: boolean;
 }
 
 export interface SkillGap {
@@ -70,4 +113,84 @@ export interface ApiStatus {
   model: string;
   latencyMs?: number;
   lastChecked?: string;
+}
+
+// Material Scanner & AI Tutor Types
+export interface TopicDefinition {
+  term: string;
+  definition: string;
+}
+
+export interface TopicFormula {
+  name: string;
+  formula: string;
+  explanation?: string;
+  notes?: string;
+}
+
+export interface ExtractedTopic {
+  id: string;
+  title: string;
+  chapterTitle?: string;
+  summary: string;
+  subtopics: string[];
+  keyConcepts: string[];
+  definitions: TopicDefinition[];
+  formulas: TopicFormula[];
+  examples: string[];
+  status: 'not-started' | 'learning' | 'needs-revision' | 'understood';
+  sourceSection?: string;
+  quizScore?: number;
+  lastQuizScore?: number;
+  lastQuizDate?: string;
+}
+
+export interface StudyMaterial {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: 'pdf' | 'docx' | 'pptx' | 'txt';
+  subject: string;
+  uploadedAt: string;
+  extractedText: string;
+  rawText?: string;
+  wordCount: number;
+  pageCount?: number;
+  title: string;
+  summary: string;
+  topics: ExtractedTopic[];
+}
+
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+  topicId: string;
+  sourceReference?: string;
+}
+
+export interface TopicQuiz {
+  id: string;
+  topicId: string;
+  topicTitle: string;
+  subject: string;
+  questions: QuizQuestion[];
+  score?: number;
+  totalQuestions: number;
+  completedAt?: string;
+  passed?: boolean;
+}
+
+export interface TutorMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  explanationLevel?: 'beginner' | 'intermediate' | 'detailed';
+  sourceDocument?: string;
+  sourceSection?: string;
+  supplementaryNotice?: string;
+  isFallback?: boolean;
 }

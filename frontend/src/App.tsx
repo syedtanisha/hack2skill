@@ -3,10 +3,23 @@ import { Navbar } from './components/Navbar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { StudyPlanner } from './components/StudyPlanner';
 import { SkillGapAnalysis } from './components/SkillGapAnalysis';
-import { ResourceRecommendations } from './components/ResourceRecommendations';
-import { LearningCoach } from './components/LearningCoach';
+import { MaterialScanner } from './components/MaterialScanner';
+import { AITutor } from './components/AITutor';
+import { ProgressOverview } from './components/ProgressOverview';
 import { ProfileModal } from './components/ProfileModal';
-import { StudentProfile, StudyPlan, SkillGap, ResourceItem, ChatMessage, ApiStatus, StudyTask } from './types';
+import {
+  StudentProfile,
+  StudyPlan,
+  SkillGap,
+  ResourceItem,
+  ChatMessage,
+  ApiStatus,
+  StudyTask,
+  TodoTask,
+  WeakAreaItem,
+  StudyMaterial,
+  ExtractedTopic,
+} from './types';
 import { storage } from './utils/storage';
 import { checkApiHealth, requestSkillGaps, requestStudyPlan } from './services/apiClient';
 import { Sparkles, X } from 'lucide-react';
@@ -14,10 +27,21 @@ import { Sparkles, X } from 'lucide-react';
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [profile, setProfile] = useState<StudentProfile>(() => storage.getProfile());
+  const [tasks, setTasks] = useState<TodoTask[]>(() => storage.getTasks());
+  const [weakAreas, setWeakAreas] = useState<WeakAreaItem[]>(() => storage.getWeakAreas());
   const [plan, setPlan] = useState<StudyPlan>(() => storage.getStudyPlan());
   const [gaps, setGaps] = useState<SkillGap[]>(() => storage.getSkillGaps());
   const [resources, setResources] = useState<ResourceItem[]>(() => storage.getResources());
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => storage.getChatMessages());
+  const [materials, setMaterials] = useState<StudyMaterial[]>(() => storage.getMaterials());
+  const [activeTutorMaterial, setActiveTutorMaterial] = useState<StudyMaterial | null>(() => {
+    const initial = storage.getMaterials();
+    return initial[0] || null;
+  });
+  const [activeTutorTopic, setActiveTutorTopic] = useState<ExtractedTopic | null>(() => {
+    const initial = storage.getMaterials();
+    return initial[0]?.topics[0] || null;
+  });
   const [apiStatus, setApiStatus] = useState<ApiStatus>({
     isConfigured: false,
     model: 'Offline Intelligence Engine',
@@ -40,6 +64,14 @@ export const App: React.FC = () => {
   }, [profile]);
 
   useEffect(() => {
+    storage.saveTasks(tasks);
+  }, [tasks]);
+
+  useEffect(() => {
+    storage.saveWeakAreas(weakAreas);
+  }, [weakAreas]);
+
+  useEffect(() => {
     storage.saveStudyPlan(plan);
   }, [plan]);
 
@@ -51,6 +83,10 @@ export const App: React.FC = () => {
     storage.saveChatMessages(chatMessages);
   }, [chatMessages]);
 
+  useEffect(() => {
+    storage.saveMaterials(materials);
+  }, [materials]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -58,7 +94,117 @@ export const App: React.FC = () => {
     }, 3500);
   };
 
-  const handleToggleTask = (taskId: string) => {
+  // Toggle To-Do task completion
+  const handleToggleTodoTask = (taskId: string) => {
+    setTasks(prevTasks => {
+      const updated = prevTasks.map(t => {
+        if (t.id === taskId) {
+          const nextCompleted = !t.completed;
+          return {
+            ...t,
+            completed: nextCompleted,
+            completedAt: nextCompleted ? new Date().toISOString() : undefined,
+          };
+        }
+        return t;
+      });
+
+      const toggled = updated.find(t => t.id === taskId);
+      if (toggled?.completed) {
+        showToast(`🎉 Completed task: "${toggled.title}"`);
+      }
+      return updated;
+    });
+  };
+
+  // Add or Edit To-Do task
+  const handleAddOrEditTodoTask = (
+    taskData: Omit<TodoTask, 'id' | 'completed' | 'completedAt'> & { id?: string }
+  ) => {
+    if (taskData.id) {
+      // Editing existing task
+      setTasks(prev =>
+        prev.map(t =>
+          t.id === taskData.id
+            ? {
+                ...t,
+                title: taskData.title,
+                description: taskData.description,
+                subject: taskData.subject,
+                deadline: taskData.deadline,
+                priority: taskData.priority,
+                estimatedMinutes: taskData.estimatedMinutes,
+              }
+            : t
+        )
+      );
+      showToast(`Updated task: "${taskData.title}"`);
+    } else {
+      // Adding new task
+      const newTask: TodoTask = {
+        id: `todo-${Date.now()}`,
+        title: taskData.title,
+        description: taskData.description,
+        subject: taskData.subject,
+        deadline: taskData.deadline,
+        priority: taskData.priority,
+        estimatedMinutes: taskData.estimatedMinutes,
+        completed: false,
+      };
+
+      setTasks(prev => [newTask, ...prev]);
+
+      // Synchronize to 7-Day Plan so the task immediately appears in both Planner and Dashboard
+      const planPriority = newTask.priority === 'Urgent' ? 'High' : (newTask.priority as 'High' | 'Medium' | 'Low');
+      const newPlanTask: StudyTask = {
+        id: `plan-synced-${newTask.id}`,
+        dayNumber: 1,
+        dayLabel: 'Day 1 (Mon)',
+        subject: newTask.subject,
+        topic: newTask.title,
+        durationMinutes: newTask.estimatedMinutes || 30,
+        priority: planPriority,
+        activity: newTask.description || `Targeted practice for ${newTask.title}`,
+        completed: false,
+      };
+      setPlan(prev => ({
+        ...prev,
+        tasks: [newPlanTask, ...prev.tasks],
+      }));
+
+      showToast(`Added to study plan and to-do list for ${taskData.subject}`);
+    }
+  };
+
+  // Delete To-Do task
+  const handleDeleteTodoTask = (taskId: string) => {
+    const taskToDelete = tasks.find(t => t.id === taskId);
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    if (taskToDelete) {
+      showToast(`Removed task: "${taskToDelete.title}"`);
+    }
+  };
+
+  // Save Self-Reported Weak Area
+  const handleSaveWeakArea = (weakArea: Omit<WeakAreaItem, 'id' | 'dateAdded'>) => {
+    const newWeakItem: WeakAreaItem = {
+      ...weakArea,
+      id: `weak-${Date.now()}`,
+      dateAdded: new Date().toISOString().split('T')[0],
+    };
+
+    setWeakAreas(prev => [newWeakItem, ...prev]);
+    showToast(`Recorded weak topic in ${weakArea.subject}`);
+  };
+
+  // Delete Weak Area
+  const handleDeleteWeakArea = (id: string) => {
+    setWeakAreas(prev => prev.filter(w => w.id !== id));
+    showToast('Weak area removed');
+  };
+
+  // Toggle 7-Day Plan Task (for planner tab)
+  const handleTogglePlanTask = (taskId: string) => {
     setPlan(prevPlan => {
       const updatedTasks = prevPlan.tasks.map(t => {
         if (t.id === taskId) {
@@ -74,7 +220,7 @@ export const App: React.FC = () => {
 
       const toggled = updatedTasks.find(t => t.id === taskId);
       if (toggled?.completed) {
-        showToast(`🎉 Completed: "${toggled.topic}"`);
+        showToast(`🎉 Completed 7-day session: "${toggled.topic}"`);
       }
 
       return {
@@ -84,7 +230,8 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleAddTask = (newTaskData: Omit<StudyTask, 'id' | 'completed'>) => {
+  // Add 7-Day Plan Task
+  const handleAddPlanTask = (newTaskData: Omit<StudyTask, 'id' | 'completed'>) => {
     const newTask: StudyTask = {
       ...newTaskData,
       id: `task-${Date.now()}`,
@@ -99,9 +246,10 @@ export const App: React.FC = () => {
     showToast(`Added task to ${newTaskData.dayLabel}`);
   };
 
+  // Save Profile & Recalibrate
   const handleSaveProfile = async (updatedProfile: StudentProfile) => {
     setProfile(updatedProfile);
-    showToast('Recalibrating plan based on updated proficiencies...');
+    showToast('Recalibrating academic recommendations...');
 
     try {
       // Re-calculate skill gaps
@@ -116,21 +264,127 @@ export const App: React.FC = () => {
         setPlan(planRes.data);
       }
 
-      showToast('Study Plan and Skill Gap Analysis successfully updated!');
+      showToast('Profile saved and academic intelligence refreshed!');
     } catch (e) {
       console.error(e);
-      showToast('Profile saved!');
+      showToast('Academic profile saved!');
     }
   };
 
+  // Handle Topic Status Update (e.g. from quiz or tutor)
+  const handleUpdateTopicStatus = (
+    materialId: string,
+    topicId: string,
+    status: 'not-started' | 'learning' | 'needs-revision' | 'understood',
+    quizScore?: number
+  ) => {
+    setMaterials(prevMaterials => {
+      const updated = prevMaterials.map(mat => {
+        if (mat.id === materialId) {
+          return {
+            ...mat,
+            topics: mat.topics.map(t => {
+              if (t.id === topicId) {
+                return {
+                  ...t,
+                  status,
+                  quizScore: quizScore !== undefined ? quizScore : t.quizScore,
+                  lastQuizDate: quizScore !== undefined ? new Date().toISOString() : t.lastQuizDate,
+                };
+              }
+              return t;
+            }),
+          };
+        }
+        return mat;
+      });
+      return updated;
+    });
+
+    if (activeTutorTopic?.id === topicId) {
+      setActiveTutorTopic(prev =>
+        prev
+          ? {
+              ...prev,
+              status,
+              quizScore: quizScore !== undefined ? quizScore : prev.quizScore,
+              lastQuizDate: quizScore !== undefined ? new Date().toISOString() : prev.lastQuizDate,
+            }
+          : null
+      );
+    }
+
+    if (status === 'understood') {
+      showToast(`🎉 Topic marked as Understood! (${quizScore !== undefined ? `${quizScore}% score` : ''})`);
+    } else if (status === 'needs-revision') {
+      showToast(`⚠️ Topic marked as Needs Revision. Practice task recommended.`);
+    }
+  };
+
+  // Add Uploaded Material
+  const handleAddMaterial = (newMaterial: StudyMaterial) => {
+    setMaterials(prev => [newMaterial, ...prev]);
+    if (newMaterial.topics.length > 0) {
+      setActiveTutorMaterial(newMaterial);
+      setActiveTutorTopic(newMaterial.topics[0]);
+    }
+    showToast(`Analyzed and saved: "${newMaterial.fileName}"`);
+  };
+
+  // Delete Material
+  const handleDeleteMaterial = (materialId: string) => {
+    const mat = materials.find(m => m.id === materialId);
+    setMaterials(prev => prev.filter(m => m.id !== materialId));
+    if (activeTutorMaterial?.id === materialId) {
+      const remaining = materials.filter(m => m.id !== materialId);
+      setActiveTutorMaterial(remaining[0] || null);
+      setActiveTutorTopic(remaining[0]?.topics[0] || null);
+    }
+    if (mat) {
+      showToast(`Removed document: "${mat.fileName}"`);
+    }
+  };
+
+  // Select Topic to study in AI Tutor
+  const handleSelectTopicForTutor = (material: StudyMaterial, topic: ExtractedTopic) => {
+    setActiveTutorMaterial(material);
+    setActiveTutorTopic(topic);
+    setCurrentTab('tutor');
+    showToast(`Opened "${topic.title}" in AI Tutor`);
+  };
+
+  // Reset to Demo (Aarav Sharma)
   const handleResetDemo = () => {
     storage.resetToDemo();
     setProfile(storage.getProfile());
+    setTasks(storage.getTasks());
+    setWeakAreas(storage.getWeakAreas());
     setPlan(storage.getStudyPlan());
     setGaps(storage.getSkillGaps());
     setResources(storage.getResources());
     setChatMessages(storage.getChatMessages());
-    showToast('Demo student profile & plan reloaded for evaluation');
+    const demoMats = storage.getMaterials();
+    setMaterials(demoMats);
+    setActiveTutorMaterial(demoMats[0] || null);
+    setActiveTutorTopic(demoMats[0]?.topics[0] || null);
+    showToast('Demo profile (Aarav Sharma) & sample tasks loaded for evaluation');
+  };
+
+  // Reset to Empty (New Student Experience)
+  const handleResetEmpty = () => {
+    storage.resetToEmpty();
+    setProfile(storage.getProfile());
+    setTasks(storage.getTasks());
+    setWeakAreas(storage.getWeakAreas());
+    setPlan(storage.getStudyPlan());
+    setGaps(storage.getSkillGaps());
+    setResources(storage.getResources());
+    setChatMessages(storage.getChatMessages());
+    const emptyMats = storage.getMaterials();
+    setMaterials(emptyMats);
+    setActiveTutorMaterial(null);
+    setActiveTutorTopic(null);
+    showToast('Switched to Fresh New Student mode — Setup prompt active');
   };
 
   return (
@@ -143,7 +397,8 @@ export const App: React.FC = () => {
         profile={profile}
         onOpenProfile={() => setIsProfileOpen(true)}
         onResetDemo={handleResetDemo}
-        isDemoStudent={profile.name === 'Aarav Sharma'}
+        onResetEmpty={handleResetEmpty}
+        isDemoStudent={profile.name === 'Aarav Sharma' && profile.isCompleted === true}
       />
 
       {/* Main Content Area */}
@@ -151,26 +406,23 @@ export const App: React.FC = () => {
         {currentTab === 'dashboard' && (
           <DashboardOverview
             profile={profile}
-            plan={plan}
+            tasks={tasks}
+            weakAreas={weakAreas}
             gaps={gaps}
-            onToggleTask={handleToggleTask}
+            apiStatus={apiStatus}
+            onSaveProfile={handleSaveProfile}
+            onAddTask={handleAddOrEditTodoTask}
+            onToggleTask={handleToggleTodoTask}
+            onDeleteTask={handleDeleteTodoTask}
+            onSaveWeakArea={handleSaveWeakArea}
+            onDeleteWeakArea={handleDeleteWeakArea}
             onNavigate={setCurrentTab}
             onOpenProfile={() => setIsProfileOpen(true)}
+            onLoadDemo={handleResetDemo}
           />
         )}
 
-        {currentTab === 'planner' && (
-          <StudyPlanner
-            profile={profile}
-            plan={plan}
-            setPlan={setPlan}
-            apiStatus={apiStatus}
-            onToggleTask={handleToggleTask}
-            onAddTask={handleAddTask}
-          />
-        )}
-
-        {currentTab === 'gaps' && (
+        {(currentTab === 'subjects' || currentTab === 'gaps') && (
           <SkillGapAnalysis
             profile={profile}
             gaps={gaps}
@@ -181,24 +433,59 @@ export const App: React.FC = () => {
           />
         )}
 
-        {currentTab === 'resources' && (
-          <ResourceRecommendations
-            resources={resources}
-            profile={profile}
+        {currentTab === 'materials' && (
+          <MaterialScanner
+            materials={materials}
+            subjects={profile.subjects || []}
+            onAddMaterial={handleAddMaterial}
+            onDeleteMaterial={handleDeleteMaterial}
+            onUpdateTopicStatus={handleUpdateTopicStatus}
+            onSelectTopicForTutor={handleSelectTopicForTutor}
+            onAddStudyTask={handleAddOrEditTodoTask}
           />
         )}
 
-        {currentTab === 'coach' && (
-          <LearningCoach
+        {(currentTab === 'tutor' || currentTab === 'coach') && (
+          <AITutor
+            materials={materials}
+            activeMaterial={activeTutorMaterial || materials[0] || null}
+            activeTopic={activeTutorTopic || materials[0]?.topics[0] || null}
+            onSelectTopic={(mat, top) => {
+              setActiveTutorMaterial(mat);
+              setActiveTutorTopic(top);
+            }}
+            onUpdateTopicStatus={handleUpdateTopicStatus}
+            onAddStudyTask={handleAddOrEditTodoTask}
+            onNavigateToMaterials={() => setCurrentTab('materials')}
+          />
+        )}
+
+        {(currentTab === 'tasks' || currentTab === 'planner') && (
+          <StudyPlanner
             profile={profile}
-            messages={chatMessages}
-            setMessages={setChatMessages}
+            plan={plan}
+            setPlan={setPlan}
             apiStatus={apiStatus}
+            onToggleTask={handleTogglePlanTask}
+            onAddTask={handleAddPlanTask}
+          />
+        )}
+
+        {(currentTab === 'progress' || currentTab === 'resources') && (
+          <ProgressOverview
+            profile={profile}
+            tasks={tasks}
+            plan={plan}
+            weakAreas={weakAreas}
+            materials={materials}
+            resources={resources}
+            onNavigate={setCurrentTab}
+            onSelectTopicForTutor={handleSelectTopicForTutor}
           />
         )}
       </main>
 
-      {/* Profile & Goals Modal */}
+      {/* Profile & Academic Settings Modal */}
       <ProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
@@ -236,19 +523,19 @@ export const App: React.FC = () => {
                   apiStatus.isConfigured ? 'bg-sage-500' : 'bg-amber-500'
                 }`}
               />
-              <span>{apiStatus.isConfigured ? 'Gemini 3.8 Flash' : 'Deterministic Offline Mode'}</span>
+              <span>{apiStatus.isConfigured ? 'Gemini 3.8 Flash Live' : 'Deterministic Offline Engine'}</span>
             </span>
             <button
               onClick={() => setIsProfileOpen(true)}
               className="hover:text-charcoal-900 font-semibold transition-colors"
             >
-              Goal Settings
+              Academic Settings
             </button>
             <button
               onClick={handleResetDemo}
               className="hover:text-charcoal-900 transition-colors"
             >
-              Reset Sample Data
+              Reload Sample Data
             </button>
           </div>
         </div>
